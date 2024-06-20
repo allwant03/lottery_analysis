@@ -1,0 +1,72 @@
+library(httr)
+library(rvest)
+library(stringr)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+# URL 및 회차 리스트 정의
+url <- 'https://www.dhlottery.co.kr/gameResult.do?method=byWin'
+draw_numbers <- c(1009, 1010, 1011, 1012, 1013) # 예시로 5개 회차 번호
+
+# 데이터를 저장할 데이터 프레임 초기화
+all_winning_numbers <- data.frame()
+
+# 반복문을 통해 각 회차의 데이터를 크롤링
+for (draw_no in draw_numbers) {
+  # POST 요청 보내기
+  response <- POST(url, body = list(drwNo = as.character(draw_no), dwrNoList = as.character(draw_no)))
+  
+  # 응답에서 HTML 내용 파싱
+  html_content <- content(response, as = "text")
+  parsed_html <- read_html(html_content)
+  
+  # 당첨 번호 추출
+  winning_numbers <- parsed_html %>%
+    html_nodes('.num.win') %>%
+    html_text() %>%
+    str_extract_all('\\d+') %>%
+    unlist()
+  
+  # 데이터 프레임으로 변환하고 회차 번호 추가
+  winning_numbers_df <- data.frame(
+    draw_no = draw_no,
+    number = as.numeric(winning_numbers)
+  )
+  
+  # 데이터 프레임 결합
+  all_winning_numbers <- bind_rows(all_winning_numbers, winning_numbers_df)
+  
+  # 2초 대기
+  Sys.sleep(2)
+}
+
+# 숫자 세기
+number_counts <- all_winning_numbers %>%
+  count(number) %>%
+  arrange(number)
+
+# 범주 묶기
+number_counts <- number_counts %>%
+  mutate(
+    Range = case_when(
+      number >= 1 & number <= 10 ~ "1-10",
+      number >= 11 & number <= 20 ~ "11-20",
+      number >= 21 & number <= 30 ~ "21-30",
+      number >= 31 & number <= 40 ~ "31-40",
+      number >= 41 & number <= 45 ~ "41-45"
+    )
+  )
+
+# 횟수 출력
+number_summary <- number_counts %>%
+  group_by(Range) %>%
+  summarise(Count = sum(n))
+
+# 그래프
+ggplot(number_summary, aes(x = Range, y = Count, fill = Range)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = Count), vjust = -0.5, size = 3) +  # 숫자 표시
+  labs(title = "Winning Numbers Distribution", x = "Number Range", y = "Count")
+
+quarto render lottery_analysis.qmd
